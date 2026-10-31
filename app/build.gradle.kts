@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.videotool"
-        minSdk = 29          // Android 10+: salvar em Pictures/Movies sem pedir permissão
+        minSdk = 21          // Android 5.0+
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"

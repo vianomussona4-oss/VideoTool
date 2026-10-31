@@ -1,6 +1,9 @@
 package com.example.videotool
 
 import android.net.Uri
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -17,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -65,6 +69,15 @@ fun VideoToolScreen(initialUri: Uri?) {
     // Abrir QUALQUER arquivo (o ExoPlayer decide se consegue decodificar)
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) videoUri = uri
+    }
+
+    // Android 6 a 9: pedir permissão para gravar na galeria
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT in 23..28 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            != PackageManager.PERMISSION_GRANTED
+        ) permLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
     }
 
     LaunchedEffect(videoUri) {

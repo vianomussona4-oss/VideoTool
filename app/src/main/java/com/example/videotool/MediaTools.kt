@@ -2,12 +2,14 @@ package com.example.videotool
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.annotation.OptIn
 import androidx.media3.common.Effect
@@ -30,19 +32,78 @@ object MediaTools {
 
     private enum class Kind { IMAGE, VIDEO, AUDIO }
 
+    // cache de pastas criadas dentro da pasta escolhida pelo usuário
+    private val dirCache = HashMap<String, Uri>()
+
     // ------------------------------------------------------------------
-    // Salvar no armazenamento do celular (funciona do Android 5 ao 15)
-    //  - Android 10+  : MediaStore (sem permissão)
-    //  - Android 5-9  : pasta pública + scanner (precisa WRITE_EXTERNAL_STORAGE)
+    // Salvar numa pasta escolhida pelo usuário (Storage Access Framework)
+    // ------------------------------------------------------------------
+    private fun findOrCreateDir(resolver: ContentResolver, tree: Uri, parent: Uri, name: String): Uri? {
+        val parentId = DocumentsContract.getDocumentId(parent)
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId)
+        resolver.query(
+            children,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE
+            ), null, null, null
+        )?.use { c ->
+            while (c.moveToNext()) {
+                if (c.getString(1) == name && c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    return DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0))
+                }
+            }
+        }
+        return DocumentsContract.createDocument(
+            resolver, parent, DocumentsContract.Document.MIME_TYPE_DIR, name
+        )
+    }
+
+    private fun saveToTree(
+        context: Context, treeStr: String, subfolder: String,
+        name: String, mime: String, write: (OutputStream) -> Unit
+    ): Uri? {
+        return try {
+            val resolver = context.contentResolver
+            val tree = Uri.parse(treeStr)
+            val key = "$treeStr|$subfolder"
+            var parent = dirCache[key]
+            if (parent == null) {
+                var p = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
+                for (part in subfolder.split("/").filter { it.isNotBlank() }) {
+                    p = findOrCreateDir(resolver, tree, p, part) ?: return null
+                }
+                dirCache[key] = p
+                parent = p
+            }
+            val doc = DocumentsContract.createDocument(resolver, parent, mime, name) ?: return null
+            resolver.openOutputStream(doc)?.use(write)
+            doc
+        } catch (e: Exception) {
+            dirCache.clear()
+            null
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Salvar no armazenamento do celular (Android 5 ao 15)
+    //  - pasta escolhida nas configurações (se houver)
+    //  - Android 10+ : MediaStore  |  Android 5-9 : pasta pública
     // ------------------------------------------------------------------
     private fun save(
         context: Context,
         kind: Kind,
-        subfolder: String,          // ex.: "VideoFrames/video_123"
+        subfolder: String,
         name: String,
         mime: String,
         write: (OutputStream) -> Unit
     ): Uri? {
+        val tree = if (kind == Kind.IMAGE) AppSettings.imagesTreeUri else AppSettings.exportsTreeUri
+        if (tree != null) {
+            saveToTree(context, tree, subfolder, name, mime, write)?.let { return it }
+        }
+
         val publicDir = when (kind) {
             Kind.IMAGE -> Environment.DIRECTORY_PICTURES
             Kind.VIDEO -> Environment.DIRECTORY_MOVIES
@@ -65,7 +126,6 @@ object MediaTools {
             return uri
         }
 
-        // Android 5 a 9
         return try {
             val dir = File(Environment.getExternalStoragePublicDirectory(publicDir), subfolder)
             if (!dir.exists() && !dir.mkdirs()) return null
@@ -79,29 +139,40 @@ object MediaTools {
     }
 
     // ------------------------------------------------------------------
-    // 1) Dividir o vídeo em 1 foto por segundo -> Imagens/VideoFrames/<pasta>
+    // 1) Dividir o vídeo em fotos (intervalo, formato e qualidade vêm das configurações)
     // ------------------------------------------------------------------
-    suspend fun extractFramesEverySecond(
+    suspend fun extractFrames(
         context: Context,
         videoUri: Uri,
         onProgress: (done: Int, total: Int) -> Unit
     ): Int = withContext(Dispatchers.IO) {
+        val interval = AppSettings.frameIntervalSec.coerceAtLeast(1)
+        val png = AppSettings.imageFormat == "png"
+        val quality = AppSettings.jpgQuality
+        val ext = if (png) "png" else "jpg"
+        val mime = if (png) "image/png" else "image/jpeg"
+
         val retriever = MediaMetadataRetriever()
         retriever.setDataSource(context, videoUri)
         val durationMs = retriever
             .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-        val total = (durationMs / 1000).toInt() + 1
+        val total = (durationMs / (interval * 1000L)).toInt() + 1
         val folder = "VideoFrames/video_${System.currentTimeMillis()}"
 
         var saved = 0
         for (i in 0 until total) {
+            val sec = i * interval
             val frame: Bitmap? = try {
-                retriever.getFrameAtTime(i * 1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST)
-            } catch (e: Exception) { null }
-
+                retriever.getFrameAtTime(sec * 1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST)
+            } catch (e: Exception) {
+                null
+            }
             if (frame != null) {
-                val uri = save(context, Kind.IMAGE, folder, "frame_%05d.jpg".format(i), "image/jpeg") {
-                    frame.compress(Bitmap.CompressFormat.JPEG, 95, it)
+                val uri = save(context, Kind.IMAGE, folder, "frame_%05d.%s".format(sec, ext), mime) {
+                    frame.compress(
+                        if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
+                        quality, it
+                    )
                 }
                 if (uri != null) saved++
                 frame.recycle()
@@ -122,7 +193,7 @@ object MediaTools {
         videoUri: Uri,
         startMs: Long,
         endMs: Long,
-        targetHeight: Int?,        // ex.: 480, 720, 1080 (null = manter)
+        targetHeight: Int?,
         audioOnly: Boolean,
         onDone: (Uri?) -> Unit
     ) {

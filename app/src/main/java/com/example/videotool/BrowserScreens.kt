@@ -2,6 +2,7 @@ package com.example.videotool
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Size
@@ -25,18 +26,21 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private fun loadThumb(context: Context, item: VideoItem): Bitmap? = try {
+fun loadVideoThumb(context: Context, uri: Uri, id: Long): Bitmap? = try {
     if (Build.VERSION.SDK_INT >= 29) {
-        context.contentResolver.loadThumbnail(item.uri, Size(256, 256), null)
+        context.contentResolver.loadThumbnail(uri, Size(256, 256), null)
     } else {
         @Suppress("DEPRECATION")
         MediaStore.Video.Thumbnails.getThumbnail(
-            context.contentResolver, item.id, MediaStore.Video.Thumbnails.MINI_KIND, null
+            context.contentResolver, id, MediaStore.Video.Thumbnails.MINI_KIND, null
         )
     }
 } catch (_: Exception) {
     null
 }
+
+private fun loadThumb(context: Context, item: VideoItem): Bitmap? =
+    loadVideoThumb(context, item.uri, item.id)
 
 @Composable
 fun Thumb(item: VideoItem, modifier: Modifier = Modifier) {
@@ -55,7 +59,7 @@ fun Thumb(item: VideoItem, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun PermissionScreen(onRequest: () -> Unit, onPickFile: () -> Unit) {
+fun PermissionScreen(onRequest: () -> Unit, onPickFile: () -> Unit, onSettings: () -> Unit) {
     Column(
         Modifier.fillMaxSize().systemBarsPadding().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -66,6 +70,8 @@ fun PermissionScreen(onRequest: () -> Unit, onPickFile: () -> Unit) {
         Button(onClick = onRequest) { Text("Permitir acesso") }
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = onPickFile) { Text("Abrir um arquivo manualmente") }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onSettings) { Text("⚙ Configurações") }
     }
 }
 
@@ -74,7 +80,8 @@ fun FoldersScreen(
     folders: List<Folder>,
     loading: Boolean,
     onOpen: (Folder) -> Unit,
-    onPickFile: () -> Unit
+    onPickFile: () -> Unit,
+    onSettings: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         Row(
@@ -83,6 +90,7 @@ fun FoldersScreen(
         ) {
             Text("Pastas de vídeo", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             OutlinedButton(onClick = onPickFile) { Text("Abrir arquivo") }
+            TextButton(onClick = onSettings) { Text("⚙", style = MaterialTheme.typography.titleLarge) }
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         else if (folders.isEmpty()) Text("Nenhum vídeo encontrado.", Modifier.padding(16.dp))

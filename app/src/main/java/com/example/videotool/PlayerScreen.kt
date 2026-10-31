@@ -74,7 +74,7 @@ fun Context.findActivity(): Activity? {
 }
 
 @Composable
-private fun OptionChip(text: String, selected: Boolean, onClick: () -> Unit) {
+fun OptionChip(text: String, selected: Boolean, onClick: () -> Unit) {
     val pad = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
     if (selected) Button(onClick = onClick, contentPadding = pad) { Text(text) }
     else OutlinedButton(onClick = onClick, contentPadding = pad) { Text(text) }
@@ -106,7 +106,7 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
     var prevSpeed by remember { mutableFloatStateOf(1f) }
     var loop by remember { mutableStateOf(false) }
     var muted by remember { mutableStateOf(false) }
-    var scaleMode by remember { mutableStateOf(ScaleMode.FIT) }
+    var scaleMode by remember { mutableStateOf(AppSettings.defaultScale) }
 
     var fullscreen by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
@@ -189,7 +189,7 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
                 if (state == Player.STATE_READY) durationMs = exoPlayer.duration.coerceAtLeast(0)
                 if (state == Player.STATE_ENDED) {
                     prefs.edit().remove(playlist[index].uri.toString()).apply()
-                    if (index < playlist.lastIndex && !loop) index++
+                    if (index < playlist.lastIndex && !loop && AppSettings.autoNext) index++
                 }
             }
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
@@ -204,7 +204,7 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
         onDispose {
             exoPlayer.removeListener(listener)
             val pos = exoPlayer.currentPosition
-            if (pos > 0) prefs.edit().putLong(playlist[index].uri.toString(), pos).apply()
+            if (pos > 0 && AppSettings.resumeEnabled) prefs.edit().putLong(playlist[index].uri.toString(), pos).apply()
             exoPlayer.release()
             activity?.let { a ->
                 a.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -220,7 +220,7 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
     // Carregar vídeo (e retomar de onde parou)
     LaunchedEffect(index) {
         val item = playlist[index]
-        val saved = prefs.getLong(item.uri.toString(), 0L)
+        val saved = if (AppSettings.resumeEnabled) prefs.getLong(item.uri.toString(), 0L) else 0L
         val start = if (saved > 3000 && (item.durationMs == 0L || saved < item.durationMs - 3000)) saved else 0L
         if (start > 0) Toast.makeText(context, "Retomando de ${formatTime(start)}", Toast.LENGTH_SHORT).show()
         exoPlayer.setMediaItem(MediaItem.fromUri(item.uri), start)
@@ -233,7 +233,7 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
     LaunchedEffect(index) {
         while (true) {
             delay(3000)
-            if (exoPlayer.isPlaying) {
+            if (exoPlayer.isPlaying && AppSettings.resumeEnabled) {
                 prefs.edit().putLong(playlist[index].uri.toString(), exoPlayer.currentPosition).apply()
             }
         }
@@ -502,14 +502,14 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
                         onClick = {
                             busy = true
                             scope.launch {
-                                val n = MediaTools.extractFramesEverySecond(context, current.uri) { d, t ->
+                                val n = MediaTools.extractFrames(context, current.uri) { d, t ->
                                     status = "Extraindo frames: $d/$t"
                                 }
-                                status = "$n fotos salvas em Imagens/VideoFrames"
+                                status = "$n fotos salvas"
                                 busy = false
                             }
                         }
-                    ) { Text("Dividir em fotos (1 por segundo)") }
+                    ) { Text("Dividir em fotos (1 a cada ${AppSettings.frameIntervalSec}s)") }
 
                     val startMs = (trimRange.start * durationMs).toLong()
                     val endMs = (trimRange.endInclusive * durationMs).toLong()

@@ -12,8 +12,8 @@ android {
         applicationId = "mz.videotool.player"   // TROQUE por um nome único seu; não dá para mudar depois de publicar
         minSdk = 21          // Android 5.0+
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.2"
     }
     signingConfigs {
         create("release") {

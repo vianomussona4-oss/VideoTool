@@ -1,7 +1,19 @@
 package com.example.videotool
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.graphics.Color as AColor
+import android.graphics.Typeface
+import android.util.Log
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -32,6 +44,12 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installCrashHandler()
+        val crash = getSharedPreferences("crash", Context.MODE_PRIVATE).getString("log", null)
+        if (crash != null) {
+            showCrashScreen(crash)
+            return
+        }
         AppSettings.init(this)
         val initial: Uri? = intent?.data
         setContent {
@@ -42,6 +60,69 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+private fun MainActivity.installCrashHandler() {
+    val previous = Thread.getDefaultUncaughtExceptionHandler()
+    Thread.setDefaultUncaughtExceptionHandler { t, e ->
+        try {
+            getSharedPreferences("crash", Context.MODE_PRIVATE).edit()
+                .putString("log", Log.getStackTraceString(e)).commit()
+        } catch (_: Throwable) {
+        }
+        previous?.uncaughtException(t, e)
+    }
+}
+
+/** Tela simples (sem Compose) que mostra o erro da última vez que o app fechou. */
+private fun MainActivity.showCrashScreen(log: String) {
+    val pad = (16 * resources.displayMetrics.density).toInt()
+    val root = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(pad, pad, pad, pad)
+        setBackgroundColor(AColor.WHITE)
+        fitsSystemWindows = true
+    }
+    root.addView(TextView(this).apply {
+        text = "O app encontrou um erro. Toque em \"Enviar e-mail\" ou \"Copiar erro\" e mande para o desenvolvedor."
+        textSize = 16f
+        setTextColor(AColor.BLACK)
+    })
+    val scroll = ScrollView(this)
+    scroll.addView(TextView(this).apply {
+        text = log.take(6000)
+        textSize = 11f
+        typeface = Typeface.MONOSPACE
+        setTextColor(AColor.BLACK)
+        setTextIsSelectable(true)
+    })
+    root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+    fun button(label: String, action: () -> Unit) = Button(this).apply {
+        text = label
+        setOnClickListener { action() }
+    }
+    root.addView(button("Enviar e-mail") {
+        val intent = Intent(Intent.ACTION_SENDTO).apply {
+            data = Uri.parse("mailto:")
+            putExtra(Intent.EXTRA_EMAIL, arrayOf(DEVELOPER_EMAIL))
+            putExtra(Intent.EXTRA_SUBJECT, "VideoTool - erro")
+            putExtra(Intent.EXTRA_TEXT, log.take(4000))
+        }
+        try { startActivity(intent) } catch (_: Exception) {
+            Toast.makeText(this, "Nenhum app de e-mail encontrado", Toast.LENGTH_LONG).show()
+        }
+    })
+    root.addView(button("Copiar erro") {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("erro", log))
+        Toast.makeText(this, "Erro copiado", Toast.LENGTH_SHORT).show()
+    })
+    root.addView(button("Limpar e tentar de novo") {
+        getSharedPreferences("crash", Context.MODE_PRIVATE).edit().clear().commit()
+        recreate()
+    })
+    setContentView(root)
 }
 
 @Composable
@@ -125,6 +206,7 @@ fun AppRoot(initialUri: Uri?) {
     var loading by remember { mutableStateOf(true) }
     var openFolderId by rememberSaveable { mutableStateOf<Long?>(null) }
     var screen by rememberSaveable { mutableStateOf("home") }   // home | settings | dups
+    var dupsBack by rememberSaveable { mutableStateOf("home") }
     var playerData by remember {
         mutableStateOf<Pair<List<VideoItem>, Int>?>(
             initialUri?.let { listOf(VideoRepository.fromUri(context, it)) to 0 }
@@ -140,7 +222,11 @@ fun AppRoot(initialUri: Uri?) {
     LaunchedEffect(granted) {
         if (granted) {
             loading = true
-            folders = withContext(Dispatchers.IO) { VideoRepository.load(context) }
+            folders = try {
+                withContext(Dispatchers.IO) { VideoRepository.load(context) }
+            } catch (e: Exception) {
+                emptyList()
+            }
             loading = false
         }
     }
@@ -150,17 +236,20 @@ fun AppRoot(initialUri: Uri?) {
         pd != null -> PlayerScreen(pd.first, pd.second, onExit = { playerData = null })
 
         screen == "dups" -> {
-            BackHandler { screen = "settings" }
+            BackHandler { screen = dupsBack }
             DuplicatesScreen(
                 audioAllowed = audioAllowed,
                 onRequestAudio = { permLauncher.launch(perms) },
-                onBack = { screen = "settings" }
+                onBack = { screen = dupsBack }
             )
         }
 
         screen == "settings" -> {
             BackHandler { screen = "home" }
-            SettingsScreen(onBack = { screen = "home" }, onDuplicates = { screen = "dups" })
+            SettingsScreen(
+                onBack = { screen = "home" },
+                onDuplicates = { dupsBack = "settings"; screen = "dups" }
+            )
         }
 
         !granted -> PermissionScreen(
@@ -176,7 +265,9 @@ fun AppRoot(initialUri: Uri?) {
                 VideosScreen(
                     folder = folder,
                     onBack = { openFolderId = null },
-                    onPlay = { i -> playerData = folder.videos to i }
+                    onPlay = { i -> playerData = folder.videos to i },
+                    onSettings = { screen = "settings" },
+                    onDuplicates = { dupsBack = "home"; screen = "dups" }
                 )
             } else {
                 FoldersScreen(
@@ -184,7 +275,8 @@ fun AppRoot(initialUri: Uri?) {
                     loading = loading,
                     onOpen = { openFolderId = it.id },
                     onPickFile = { filePicker.launch(arrayOf("*/*")) },
-                    onSettings = { screen = "settings" }
+                    onSettings = { screen = "settings" },
+                    onDuplicates = { dupsBack = "home"; screen = "dups" }
                 )
             }
         }

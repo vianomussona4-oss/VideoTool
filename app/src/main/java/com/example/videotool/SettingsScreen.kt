@@ -144,8 +144,8 @@ fun SettingsScreen(onBack: () -> Unit, onDuplicates: () -> Unit) {
             SectionTitle("Fotos dos vídeos")
             Text("Gerar uma foto a cada:")
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(1, 2, 5, 10, 30).forEach { s ->
-                    OptionChip("${s}s", AppSettings.frameIntervalSec == s) { change { AppSettings.frameIntervalSec = s } }
+                FRAME_INTERVALS_MS.forEach { ms ->
+                    OptionChip(intervalLabel(ms), AppSettings.frameIntervalMs == ms) { change { AppSettings.frameIntervalMs = ms } }
                 }
             }
             Text("Formato da imagem:")
@@ -189,7 +189,7 @@ fun SettingsScreen(onBack: () -> Unit, onDuplicates: () -> Unit) {
 
             // ---------------- Sobre e contacto ----------------
             SectionTitle("Sobre e contacto")
-            Text("VideoTool 1.0")
+            Text("VideoTool 1.2")
             Text("Contacto do desenvolvedor:")
             Text(DEVELOPER_EMAIL, color = MaterialTheme.colorScheme.primary)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -213,5 +213,19 @@ fun SettingsScreen(onBack: () -> Unit, onDuplicates: () -> Unit) {
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+/** Abre o app de e-mail para falar com o desenvolvedor. */
+fun openDeveloperEmail(context: Context) {
+    val intent = Intent(Intent.ACTION_SENDTO).apply {
+        data = Uri.parse("mailto:")
+        putExtra(Intent.EXTRA_EMAIL, arrayOf(DEVELOPER_EMAIL))
+        putExtra(Intent.EXTRA_SUBJECT, "VideoTool - Contacto")
+    }
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "Nenhum app de e-mail encontrado", Toast.LENGTH_LONG).show()
     }
 }

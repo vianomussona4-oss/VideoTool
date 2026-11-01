@@ -55,13 +55,18 @@ const val MAX_SPEED = 4.0f
 @OptIn(UnstableApi::class)
 enum class ScaleMode(val label: String, val resize: Int, val ratio: Float?) {
     FIT("Ajustar", AspectRatioFrameLayout.RESIZE_MODE_FIT, null),
-    FILL("Esticar", AspectRatioFrameLayout.RESIZE_MODE_FILL, null),
+    FILL("Esticar (tela toda)", AspectRatioFrameLayout.RESIZE_MODE_FILL, null),
     ZOOM("Preencher (cortar)", AspectRatioFrameLayout.RESIZE_MODE_ZOOM, null),
     WIDTH("Largura", AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH, null),
     HEIGHT("Altura", AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT, null),
     SQUARE("Quadrado 1:1", AspectRatioFrameLayout.RESIZE_MODE_FILL, 1f),
-    R169("16:9", AspectRatioFrameLayout.RESIZE_MODE_FILL, 16f / 9f),
-    R43("4:3", AspectRatioFrameLayout.RESIZE_MODE_FILL, 4f / 3f)
+    R169("16:9 (deitado)", AspectRatioFrameLayout.RESIZE_MODE_FILL, 16f / 9f),
+    R219("21:9 (deitado)", AspectRatioFrameLayout.RESIZE_MODE_FILL, 21f / 9f),
+    R43("4:3 (deitado)", AspectRatioFrameLayout.RESIZE_MODE_FILL, 4f / 3f),
+    R916("9:16 (em pé)", AspectRatioFrameLayout.RESIZE_MODE_FILL, 9f / 16f),
+    R921("9:21 (em pé)", AspectRatioFrameLayout.RESIZE_MODE_FILL, 9f / 21f),
+    R34("3:4 (em pé)", AspectRatioFrameLayout.RESIZE_MODE_FILL, 3f / 4f),
+    R24("2:4 (em pé)", AspectRatioFrameLayout.RESIZE_MODE_FILL, 2f / 4f)
 }
 
 fun Context.findActivity(): Activity? {
@@ -114,6 +119,7 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
     var panelOpen by remember { mutableStateOf(true) }   // painel abre já aberto
     var sidePanel by remember { mutableStateOf(false) }  // painel lateral (tela cheia/horizontal)
     var tab by remember { mutableIntStateOf(0) }
+    var scaleMenu by remember { mutableStateOf(false) }
     var hint by remember { mutableStateOf("") }
     var seeking by remember { mutableStateOf(false) }
     var seekValue by remember { mutableFloatStateOf(0f) }
@@ -271,8 +277,8 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
     }
 
     // Esconder controles sozinho
-    LaunchedEffect(showControls, isPlaying, controlsTick) {
-        if (showControls && isPlaying) {
+    LaunchedEffect(showControls, isPlaying, controlsTick, scaleMenu) {
+        if (showControls && isPlaying && !scaleMenu) {
             delay(4000)
             showControls = false
         }
@@ -390,6 +396,19 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
                         if (immersive) sidePanel = !sidePanel else panelOpen = !panelOpen
                         controlsTick++
                     }) { Text("⚙", color = Color.White, fontSize = 20.sp) }
+                    Box {
+                        TextButton(onClick = { scaleMenu = true; controlsTick++ }) {
+                            Text("▭", color = Color.White, fontSize = 20.sp)
+                        }
+                        DropdownMenu(expanded = scaleMenu, onDismissRequest = { scaleMenu = false }) {
+                            ScaleMode.values().forEach { m ->
+                                DropdownMenuItem(
+                                    text = { Text((if (m == scaleMode) "✓ " else "") + m.label) },
+                                    onClick = { scaleMode = m; scaleMenu = false; controlsTick++ }
+                                )
+                            }
+                        }
+                    }
                     TextButton(onClick = { fullscreen = !fullscreen; controlsTick++ }) {
                         Text(if (fullscreen) "⤢" else "⛶", color = Color.White, fontSize = 20.sp)
                     }
@@ -496,6 +515,21 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
                     Text("Dica: arraste no vídeo para avançar/voltar; lado esquerdo = brilho, lado direito = volume; toque duplo = ±10s.",
                         style = MaterialTheme.typography.bodySmall)
                 } else {
+                    Text("Intervalo entre as fotos")
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FRAME_INTERVALS_MS.forEach { ms ->
+                            OptionChip(intervalLabel(ms), AppSettings.frameIntervalMs == ms) {
+                                AppSettings.frameIntervalMs = ms
+                                AppSettings.save()
+                            }
+                        }
+                    }
+                    if (durationMs > 0) {
+                        Text(
+                            "Serão geradas cerca de ${durationMs / AppSettings.frameIntervalMs + 1} fotos.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                     Button(
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth(),
@@ -509,7 +543,7 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
                                 busy = false
                             }
                         }
-                    ) { Text("Dividir em fotos (1 a cada ${AppSettings.frameIntervalSec}s)") }
+                    ) { Text("Dividir em fotos (a cada ${intervalLabel(AppSettings.frameIntervalMs)})") }
 
                     val startMs = (trimRange.start * durationMs).toLong()
                     val endMs = (trimRange.endInclusive * durationMs).toLong()
@@ -575,7 +609,7 @@ fun PlayerScreen(playlist: List<VideoItem>, startIndex: Int, onExit: () -> Unit)
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                videoArea(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                videoArea(Modifier.fillMaxWidth().aspectRatio(if ((scaleMode.ratio ?: 2f) < 1f) 1f else 16f / 9f))
                 if (panelOpen) Box(Modifier.weight(1f).fillMaxWidth()) { panelContent() }
             }
         }

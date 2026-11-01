@@ -146,7 +146,7 @@ object MediaTools {
         videoUri: Uri,
         onProgress: (done: Int, total: Int) -> Unit
     ): Int = withContext(Dispatchers.IO) {
-        val interval = AppSettings.frameIntervalSec.coerceAtLeast(1)
+        val intervalMs = AppSettings.frameIntervalMs.coerceAtLeast(100)
         val png = AppSettings.imageFormat == "png"
         val quality = AppSettings.jpgQuality
         val ext = if (png) "png" else "jpg"
@@ -156,19 +156,19 @@ object MediaTools {
         retriever.setDataSource(context, videoUri)
         val durationMs = retriever
             .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-        val total = (durationMs / (interval * 1000L)).toInt() + 1
+        val total = (durationMs / intervalMs).toInt() + 1
         val folder = "VideoFrames/video_${System.currentTimeMillis()}"
 
         var saved = 0
         for (i in 0 until total) {
-            val sec = i * interval
+            val tMs = i * intervalMs.toLong()
             val frame: Bitmap? = try {
-                retriever.getFrameAtTime(sec * 1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                retriever.getFrameAtTime(tMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
             } catch (e: Exception) {
                 null
             }
             if (frame != null) {
-                val uri = save(context, Kind.IMAGE, folder, "frame_%05d.%s".format(sec, ext), mime) {
+                val uri = save(context, Kind.IMAGE, folder, "frame_%05d_%dms.%s".format(i, tMs, ext), mime) {
                     frame.compress(
                         if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
                         quality, it

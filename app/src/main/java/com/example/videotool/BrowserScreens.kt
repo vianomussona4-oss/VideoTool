@@ -71,7 +71,7 @@ fun PermissionScreen(onRequest: () -> Unit, onPickFile: () -> Unit, onSettings: 
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = onPickFile) { Text("Abrir um arquivo manualmente") }
         Spacer(Modifier.height(8.dp))
-        TextButton(onClick = onSettings) { Text("⚙ Configurações") }
+        TextButton(onClick = onSettings) { Text("Configurações") }
     }
 }
 
@@ -81,7 +81,8 @@ fun FoldersScreen(
     loading: Boolean,
     onOpen: (Folder) -> Unit,
     onPickFile: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onDuplicates: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         Row(
@@ -90,7 +91,7 @@ fun FoldersScreen(
         ) {
             Text("Pastas de vídeo", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             OutlinedButton(onClick = onPickFile) { Text("Abrir arquivo") }
-            TextButton(onClick = onSettings) { Text("⚙", style = MaterialTheme.typography.titleLarge) }
+            AppMenuButton(onSettings, onDuplicates)
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
         else if (folders.isEmpty()) Text("Nenhum vídeo encontrado.", Modifier.padding(16.dp))
@@ -116,12 +117,19 @@ fun FoldersScreen(
 }
 
 @Composable
-fun VideosScreen(folder: Folder, onBack: () -> Unit, onPlay: (Int) -> Unit) {
+fun VideosScreen(
+    folder: Folder,
+    onBack: () -> Unit,
+    onPlay: (Int) -> Unit,
+    onSettings: () -> Unit,
+    onDuplicates: () -> Unit
+) {
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Pastas") }
             Text(folder.name, style = MaterialTheme.typography.titleLarge,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            AppMenuButton(onSettings, onDuplicates)
         }
         LazyColumn(Modifier.fillMaxSize()) {
             itemsIndexed(folder.videos) { i, v ->
@@ -141,6 +149,21 @@ fun VideosScreen(folder: Folder, onBack: () -> Unit, onPlay: (Int) -> Unit) {
                 }
                 HorizontalDivider()
             }
+        }
+    }
+}
+
+/** Botão com 3 barras (☰): configurações, duplicados e contacto. */
+@Composable
+fun AppMenuButton(onSettings: () -> Unit, onDuplicates: () -> Unit) {
+    val context = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { open = true }) { Text("☰", style = MaterialTheme.typography.titleLarge) }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Configurações") }, onClick = { open = false; onSettings() })
+            DropdownMenuItem(text = { Text("Duplicados e capas parecidas") }, onClick = { open = false; onDuplicates() })
+            DropdownMenuItem(text = { Text("Contactar o desenvolvedor") }, onClick = { open = false; openDeveloperEmail(context) })
         }
     }
 }

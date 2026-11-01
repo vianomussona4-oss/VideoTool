@@ -15,7 +15,7 @@ object AppSettings {
     var accentColor by mutableIntStateOf(0xFF1E88E5.toInt())
     var imagesTreeUri by mutableStateOf<String?>(null)    // pasta escolhida para as fotos
     var exportsTreeUri by mutableStateOf<String?>(null)   // pasta para vídeos/áudios convertidos
-    var frameIntervalSec by mutableIntStateOf(1)
+    var frameIntervalMs by mutableIntStateOf(1000)
     var imageFormat by mutableStateOf("jpg")
     var jpgQuality by mutableIntStateOf(95)
     var resumeEnabled by mutableStateOf(true)
@@ -30,7 +30,8 @@ object AppSettings {
         accentColor = p.getInt("accentColor", 0xFF1E88E5.toInt())
         imagesTreeUri = p.getString("imagesTreeUri", null)
         exportsTreeUri = p.getString("exportsTreeUri", null)
-        frameIntervalSec = p.getInt("frameIntervalSec", 1)
+        frameIntervalMs = if (p.contains("frameIntervalMs")) p.getInt("frameIntervalMs", 1000)
+            else p.getInt("frameIntervalSec", 1) * 1000
         imageFormat = p.getString("imageFormat", "jpg") ?: "jpg"
         jpgQuality = p.getInt("jpgQuality", 95)
         resumeEnabled = p.getBoolean("resumeEnabled", true)
@@ -48,7 +49,7 @@ object AppSettings {
             ?.putInt("accentColor", accentColor)
             ?.putString("imagesTreeUri", imagesTreeUri)
             ?.putString("exportsTreeUri", exportsTreeUri)
-            ?.putInt("frameIntervalSec", frameIntervalSec)
+            ?.putInt("frameIntervalMs", frameIntervalMs)
             ?.putString("imageFormat", imageFormat)
             ?.putInt("jpgQuality", jpgQuality)
             ?.putBoolean("resumeEnabled", resumeEnabled)
@@ -56,4 +57,15 @@ object AppSettings {
             ?.putString("defaultScale", defaultScale.name)
             ?.apply()
     }
+}
+
+/** Opções de intervalo entre fotos. */
+val FRAME_INTERVALS_MS = listOf(200, 500, 1000, 2000)
+
+fun intervalLabel(ms: Int): String = when (ms) {
+    200 -> "0,2s"
+    500 -> "0,5s"
+    1000 -> "1s"
+    2000 -> "2s"
+    else -> "${ms / 1000.0}s"
 }
